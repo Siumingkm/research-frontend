@@ -131,169 +131,352 @@
     <div id="toastContainer"></div>
     <input type="file" id="importFileInput" accept=".xlsx,.xls" style="display:none" onchange="handleFileImport(event)">
 
-    <script>
-        const API_BASE = 'https://research-api-pbcq.onrender.com/api'; // 部署时改为 Render 域名
-        let currentUser = null;
-        let currentPage = '';
+<script>
+    const API_BASE = 'https://research-api-pbcq.onrender.com/api';
+    let currentUser = null;
+    let currentPage = '';
 
-        async function apiRequest(endpoint, method='GET', body=null) {
-            const headers = {'Content-Type':'application/json'};
-            const token = localStorage.getItem('token');
-            if(token) headers['Authorization'] = `Bearer ${token}`;
-            const res = await fetch(`${API_BASE}${endpoint}`, {method, headers, body: body?JSON.stringify(body):undefined});
-            const data = await res.json();
-            if(!res.ok) throw new Error(data.message||'请求失败');
-            return data;
-        }
-
-function toggleLoginFields() {
-    const role = document.getElementById('loginRole').value;
-    document.getElementById('studentLoginFields').style.display = role === 'student' ? 'block' : 'none';
-    document.getElementById('adminLoginFields').style.display = role === 'admin' ? 'block' : 'none';
-    document.getElementById('loginError').textContent = '';
-}
-
-        function showToast(msg, type='success') {
-            const c = document.getElementById('toastContainer');
-            const t = document.createElement('div');
-            t.className = `toast ${type}`;
-            t.innerHTML = `${type==='success'?'✅':'❌'} ${msg}`;
-            c.appendChild(t);
-            setTimeout(()=>{t.style.opacity='0';t.style.transform='translateX(120%)';t.style.transition='0.3s';setTimeout(()=>t.remove(),300)},2500);
-        }
-
-        function openModal(html){document.getElementById('modalBody').innerHTML=html;document.getElementById('modalOverlay').classList.add('show');}
-        function closeModal(){document.getElementById('modalOverlay').classList.remove('show');}
-        document.getElementById('modalOverlay').addEventListener('click',function(e){if(e.target===this)closeModal();});
-
-        async function handleLogin() {
-    const role = document.getElementById('loginRole').value;
-    const password = document.getElementById('loginPassword').value;
-    const errorEl = document.getElementById('loginError');
-
-    if (role === 'student') {
-        const sid = document.getElementById('loginStudentId').value.trim();
-        if (!sid) { errorEl.textContent = '❌ 请输入学号'; return; }
-        // 调用学生登录 API
-        await loginStudent(sid, password);
-    } else if (role === 'admin') {
-        const adminUser = document.getElementById('loginAdminUser').value.trim();
-        if (!adminUser) { errorEl.textContent = '❌ 请输入管理员账号'; return; }
-        // 调用管理员登录 API
-        await loginAdmin(adminUser, password);
+    // ==================== 工具函数 ====================
+    async function apiRequest(endpoint, method='GET', body=null) {
+        const headers = {'Content-Type':'application/json'};
+        const token = localStorage.getItem('token');
+        if(token) headers['Authorization'] = `Bearer ${token}`;
+        const res = await fetch(`${API_BASE}${endpoint}`, {
+            method, headers,
+            body: body ? JSON.stringify(body) : undefined
+        });
+        const data = await res.json();
+        if(!res.ok) throw new Error(data.message||'请求失败');
+        return data;
     }
-}
 
-        function handleLogout() {
-            localStorage.removeItem('token');
-            currentUser=null;
-            document.getElementById('loginOverlay').classList.remove('hidden');
-            document.getElementById('appLayout').classList.remove('active');
-            document.getElementById('mainContent').innerHTML='';
-            document.getElementById('sidebarNav').innerHTML='';
-        }
+    function showToast(msg, type='success') {
+        const c = document.getElementById('toastContainer');
+        const t = document.createElement('div');
+        t.className = `toast ${type}`;
+        t.innerHTML = `${type==='success'?'✅':'❌'} ${msg}`;
+        c.appendChild(t);
+        setTimeout(()=>{
+            t.style.opacity='0'; t.style.transform='translateX(120%)';
+            t.style.transition='0.3s'; setTimeout(()=>t.remove(),300);
+        },2500);
+    }
 
-        function buildSidebar() {
-            const nav = document.getElementById('sidebarNav');
-            let html='';
-            if(currentUser.role==='student'){
-                html+='<div class="nav-section">学生功能</div>';
-                html+='<div class="nav-item active" data-page="student-dashboard" onclick="navigateTo(\'student-dashboard\')"><span class="nav-icon">📊</span> 我的仪表盘</div>';
-                html+='<div class="nav-item" data-page="student-register" onclick="navigateTo(\'student-register\')"><span class="nav-icon">📝</span> 登记成果</div>';
-                html+='<div class="nav-item" data-page="student-achievements" onclick="navigateTo(\'student-achievements\')"><span class="nav-icon">📋</span> 我的成果列表</div>';
-                html+='<div class="nav-item" data-page="student-profile" onclick="navigateTo(\'student-profile\')"><span class="nav-icon">👤</span> 个人信息</div>';
+    function toggleLoginFields() {
+        const role = document.getElementById('loginRole').value;
+        document.getElementById('studentLoginFields').style.display = role === 'student' ? 'block' : 'none';
+        document.getElementById('adminLoginFields').style.display = role === 'admin' ? 'block' : 'none';
+        document.getElementById('loginError').textContent = '';
+    }
+
+    function openModal(html){
+        document.getElementById('modalBody').innerHTML=html;
+        document.getElementById('modalOverlay').classList.add('show');
+    }
+    function closeModal(){
+        document.getElementById('modalOverlay').classList.remove('show');
+    }
+    document.getElementById('modalOverlay').addEventListener('click',function(e){
+        if(e.target===this) closeModal();
+    });
+
+    // ==================== 登录逻辑 ====================
+    async function loginStudent(sid, password) {
+        const data = await apiRequest('/auth/login/student', 'POST', { studentId: sid, password });
+        return data;
+    }
+
+    async function loginAdmin(username, password) {
+        const data = await apiRequest('/auth/login/admin', 'POST', { username, password });
+        return data;
+    }
+
+    async function handleLogin() {
+        const role = document.getElementById('loginRole').value;
+        const password = document.getElementById('loginPassword').value;
+        const errorEl = document.getElementById('loginError');
+        errorEl.textContent = '';
+
+        try {
+            let data;
+            if (role === 'student') {
+                const sid = document.getElementById('loginStudentId').value.trim();
+                if (!sid) { errorEl.textContent = '❌ 请输入学号'; return; }
+                data = await loginStudent(sid, password);
             } else {
-                html+='<div class="nav-section">管理功能</div>';
-                html+='<div class="nav-item active" data-page="admin-dashboard" onclick="navigateTo(\'admin-dashboard\')"><span class="nav-icon">📊</span> 管理仪表盘</div>';
-                html+='<div class="nav-item" data-page="admin-achievements" onclick="navigateTo(\'admin-achievements\')"><span class="nav-icon">📋</span> 成果审核管理</div>';
-                html+='<div class="nav-item" data-page="admin-students" onclick="navigateTo(\'admin-students\')"><span class="nav-icon">👥</span> 学生管理</div>';
-                html+='<div class="nav-item" data-page="admin-statistics" onclick="navigateTo(\'admin-statistics\')"><span class="nav-icon">📈</span> 数据统计</div>';
+                const username = document.getElementById('loginAdminUser').value.trim();
+                if (!username) { errorEl.textContent = '❌ 请输入管理员账号'; return; }
+                data = await loginAdmin(username, password);
             }
-            nav.innerHTML = html;
+            // 登录成功
+            localStorage.setItem('token', data.token);
+            currentUser = data.user;
+            document.getElementById('loginOverlay').classList.add('hidden');
+            document.getElementById('appLayout').classList.add('active');
+            document.getElementById('sidebarRole').textContent =
+                currentUser.role === 'student' ? `学生端 · ${currentUser.name}` : '管理端 · 管理员';
+            buildSidebar();
+            navigateTo(currentUser.role === 'student' ? 'student-dashboard' : 'admin-dashboard');
+        } catch (err) {
+            errorEl.textContent = '❌ ' + err.message;
         }
+    }
 
-        function navigateTo(page) {
-            currentPage = page;
-            document.querySelectorAll('#sidebarNav .nav-item').forEach(i=>i.classList.toggle('active', i.dataset.page===page));
-            const mc = document.getElementById('mainContent');
-            switch(page) {
-                case 'student-dashboard': renderStudentDashboard().then(h=>mc.innerHTML=h); break;
-                case 'student-register': mc.innerHTML = renderRegisterForm(); break;
-                case 'student-achievements': renderStudentAchievements().then(h=>mc.innerHTML=h); break;
-                case 'student-profile': renderStudentProfile().then(h=>mc.innerHTML=h); break;
-                case 'admin-dashboard': renderAdminDashboard().then(h=>mc.innerHTML=h); break;
-                case 'admin-achievements': renderAdminAchievements().then(h=>mc.innerHTML=h); break;
-                case 'admin-students': renderAdminStudents().then(h=>mc.innerHTML=h); break;
-                case 'admin-statistics': renderAdminStatistics().then(h=>mc.innerHTML=h); break;
-            }
-            window.scrollTo({top:0,behavior:'smooth'});
+    function handleLogout() {
+        localStorage.removeItem('token');
+        currentUser = null;
+        document.getElementById('loginOverlay').classList.remove('hidden');
+        document.getElementById('appLayout').classList.remove('active');
+        document.getElementById('mainContent').innerHTML = '';
+        document.getElementById('sidebarNav').innerHTML = '';
+    }
+
+    // ==================== 侧边栏 ====================
+    function buildSidebar() {
+        const nav = document.getElementById('sidebarNav');
+        let html = '';
+        if (currentUser.role === 'student') {
+            html += '<div class="nav-section">学生功能</div>';
+            html += `<div class="nav-item active" data-page="student-dashboard" onclick="navigateTo('student-dashboard')"><span class="nav-icon">📊</span> 我的仪表盘</div>`;
+            html += `<div class="nav-item" data-page="student-register" onclick="navigateTo('student-register')"><span class="nav-icon">📝</span> 登记成果</div>`;
+            html += `<div class="nav-item" data-page="student-achievements" onclick="navigateTo('student-achievements')"><span class="nav-icon">📋</span> 我的成果列表</div>`;
+            html += `<div class="nav-item" data-page="student-profile" onclick="navigateTo('student-profile')"><span class="nav-icon">👤</span> 个人信息</div>`;
+        } else {
+            html += '<div class="nav-section">管理功能</div>';
+            html += `<div class="nav-item active" data-page="admin-dashboard" onclick="navigateTo('admin-dashboard')"><span class="nav-icon">📊</span> 管理仪表盘</div>`;
+            html += `<div class="nav-item" data-page="admin-achievements" onclick="navigateTo('admin-achievements')"><span class="nav-icon">📋</span> 成果审核管理</div>`;
+            html += `<div class="nav-item" data-page="admin-students" onclick="navigateTo('admin-students')"><span class="nav-icon">👥</span> 学生管理</div>`;
+            html += `<div class="nav-item" data-page="admin-statistics" onclick="navigateTo('admin-statistics')"><span class="nav-icon">📈</span> 数据统计</div>`;
         }
+        nav.innerHTML = html;
+    }
 
-        function getAchievementTypeLabel(t){return {competition:'🏆 比赛获奖',honor:'🏅 表彰',paper:'📄 论文',software:'💿 软件著作权',patent:'🔬 专利',project:'📁 项目'}[t]||t;}
-        function getStatusBadge(s){if(s==='approved')return '<span style="color:#10b981;"><span class="status-dot approved"></span>已通过</span>';if(s==='pending')return '<span style="color:#f59e0b;"><span class="status-dot pending"></span>待审核</span>';return '<span style="color:#ef4444;"><span class="status-dot rejected"></span>已退回</span>';}
-        function formatDate(d){if(!d)return '-';const dt=new Date(d);return dt.toLocaleDateString('zh-CN',{year:'numeric',month:'2-digit',day:'2-digit'});}
-
-        // ---------- 学生仪表盘 ----------
-        async function renderStudentDashboard() {
-            const achList = await apiRequest('/achievements');
-            const approved=achList.filter(a=>a.status==='approved').length;
-            const pending=achList.filter(a=>a.status==='pending').length;
-            const rejected=achList.filter(a=>a.status==='rejected').length;
-            const typeCount={}; achList.forEach(a=>{typeCount[a.type]=(typeCount[a.type]||0)+1;});
-            return `
-            <div class="page-header"><h2>📊 我的仪表盘</h2><p class="breadcrumb">欢迎，${currentUser.name}！</p></div>
-            <div class="stats-grid">
-                <div class="stat-card"><div class="stat-icon blue">📋</div><div class="stat-info"><div class="stat-value">${achList.length}</div><div class="stat-label">成果总数</div></div></div>
-                <div class="stat-card"><div class="stat-icon green">✅</div><div class="stat-info"><div class="stat-value">${approved}</div><div class="stat-label">已通过</div></div></div>
-                <div class="stat-card"><div class="stat-icon orange">⏳</div><div class="stat-info"><div class="stat-value">${pending}</div><div class="stat-label">待审核</div></div></div>
-                <div class="stat-card"><div class="stat-icon red">↩️</div><div class="stat-info"><div class="stat-value">${rejected}</div><div class="stat-label">已退回</div></div></div>
-            </div>
-            <div class="card"><div class="card-header"><h3>📌 成果类型分布</h3></div><div style="display:flex;flex-wrap:wrap;gap:12px;">${['competition','honor','paper','software','patent','project'].map(t=>`<span style="background:#f1f5f9;padding:10px 16px;border-radius:20px;font-weight:600">${getAchievementTypeLabel(t)}：<strong>${typeCount[t]||0}</strong> 项</span>`).join('')}</div></div>
-            <button class="btn btn-primary" onclick="navigateTo('student-register')">📝 登记新成果</button>`;
+    function navigateTo(page) {
+        currentPage = page;
+        document.querySelectorAll('#sidebarNav .nav-item').forEach(i => i.classList.toggle('active', i.dataset.page === page));
+        const mc = document.getElementById('mainContent');
+        const renderMap = {
+            'student-dashboard': renderStudentDashboard,
+            'student-register': renderRegisterForm,
+            'student-achievements': renderStudentAchievements,
+            'student-profile': renderStudentProfile,
+            'admin-dashboard': renderAdminDashboard,
+            'admin-achievements': renderAdminAchievements,
+            'admin-students': renderAdminStudents,
+            'admin-statistics': renderAdminStatistics
+        };
+        const fn = renderMap[page];
+        if (fn) {
+            const result = fn();
+            if (result instanceof Promise) result.then(h => mc.innerHTML = h);
+            else mc.innerHTML = result;
         }
+        window.scrollTo({top:0, behavior:'smooth'});
+    }
 
-        // ---------- 登记表单 ----------
-        function renderRegisterForm() {
-            return `<div class="page-header"><h2>📝 登记科研成果</h2></div>
-            <div class="card"><div class="card-header"><h3>选择成果类型</h3></div>
-            <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:20px;">${['competition','honor','paper','software','patent','project'].map(t=>`<button class="btn btn-outline" onclick="showAchievementForm('${t}')">${getAchievementTypeLabel(t)}</button>`).join('')}</div>
-            <div id="registerFormContainer"><p style="text-align:center;color:#8895aa;">👆 请选择一种成果类型</p></div></div>`;
+    // ==================== 工具函数 ====================
+    function getAchievementTypeLabel(t) {
+        return {competition:'🏆 比赛获奖', honor:'🏅 表彰', paper:'📄 论文', software:'💿 软件著作权', patent:'🔬 专利', project:'📁 项目'}[t]||t;
+    }
+    function getStatusBadge(s) {
+        if(s==='approved') return '<span style="color:#10b981;"><span class="status-dot approved"></span>已通过</span>';
+        if(s==='pending') return '<span style="color:#f59e0b;"><span class="status-dot pending"></span>待审核</span>';
+        return '<span style="color:#ef4444;"><span class="status-dot rejected"></span>已退回</span>';
+    }
+    function formatDate(d) { if(!d) return '-'; const dt=new Date(d); return dt.toLocaleDateString('zh-CN'); }
+
+    // ==================== 学生端页面 ====================
+    async function renderStudentDashboard() {
+        const achList = await apiRequest('/achievements');
+        const approved = achList.filter(a=>a.status==='approved').length;
+        const pending = achList.filter(a=>a.status==='pending').length;
+        const rejected = achList.filter(a=>a.status==='rejected').length;
+        const typeCount = {};
+        achList.forEach(a => { typeCount[a.type] = (typeCount[a.type]||0)+1; });
+        return `
+        <div class="page-header"><h2>📊 我的仪表盘</h2><p class="breadcrumb">欢迎，${currentUser.name}！</p></div>
+        <div class="stats-grid">
+            <div class="stat-card"><div class="stat-icon blue">📋</div><div class="stat-info"><div class="stat-value">${achList.length}</div><div class="stat-label">成果总数</div></div></div>
+            <div class="stat-card"><div class="stat-icon green">✅</div><div class="stat-info"><div class="stat-value">${approved}</div><div class="stat-label">已通过</div></div></div>
+            <div class="stat-card"><div class="stat-icon orange">⏳</div><div class="stat-info"><div class="stat-value">${pending}</div><div class="stat-label">待审核</div></div></div>
+            <div class="stat-card"><div class="stat-icon red">↩️</div><div class="stat-info"><div class="stat-value">${rejected}</div><div class="stat-label">已退回</div></div></div>
+        </div>
+        <div class="card"><div class="card-header"><h3>📌 成果类型分布</h3></div><div style="display:flex;flex-wrap:wrap;gap:12px;">${['competition','honor','paper','software','patent','project'].map(t=>`<span style="background:#f1f5f9;padding:10px 16px;border-radius:20px;font-weight:600">${getAchievementTypeLabel(t)}：<strong>${typeCount[t]||0}</strong> 项</span>`).join('')}</div></div>
+        <button class="btn btn-primary" onclick="navigateTo('student-register')">📝 登记新成果</button>`;
+    }
+
+    function renderRegisterForm() {
+        return `<div class="page-header"><h2>📝 登记科研成果</h2></div>
+        <div class="card"><div class="card-header"><h3>选择成果类型</h3></div>
+        <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:20px;">${['competition','honor','paper','software','patent','project'].map(t=>`<button class="btn btn-outline" onclick="showAchievementForm('${t}')">${getAchievementTypeLabel(t)}</button>`).join('')}</div>
+        <div id="registerFormContainer"><p style="text-align:center;color:#8895aa;">👆 请选择一种成果类型</p></div></div>`;
+    }
+
+    function showAchievementForm(type) {
+        let html='';
+        switch(type){
+            case 'competition': html=`<h4>🏆 比赛获奖</h4><div class="form-grid"><div class="form-group full"><label>比赛名称*</label><input id="f_name"></div><div class="form-group"><label>获奖等级*</label><select id="f_award"><option value="">请选择</option><option>一等奖</option><option>二等奖</option><option>三等奖</option></select></div><div class="form-group"><label>级别*</label><select id="f_level"><option value="">请选择</option><option>国家级</option><option>省级</option></select></div><div class="form-group"><label>主办单位*</label><input id="f_organizer"></div><div class="form-group"><label>日期*</label><input type="date" id="f_date"></div><div class="form-group"><label>指导教师</label><input id="f_advisor"></div><div class="form-group"><label>证书编号</label><input id="f_certno"></div></div>`; break;
+            case 'paper': html=`<h4>📄 论文</h4><div class="form-grid"><div class="form-group full"><label>题目*</label><input id="f_title"></div><div class="form-group"><label>期刊*</label><input id="f_journal"></div><div class="form-group"><label>级别</label><select id="f_level"><option value="">请选择</option><option>SCI</option><option>EI</option><option>核心</option></select></div><div class="form-group"><label>日期*</label><input type="date" id="f_date"></div><div class="form-group"><label>作者顺序*</label><select id="f_authorOrder"><option value="">请选择</option><option>第一作者</option><option>第二作者</option></select></div><div class="form-group"><label>DOI</label><input id="f_doi"></div></div>`; break;
+            default: html=`<p>表单建设中</p>`;
         }
+        html+=`<div class="form-actions"><button class="btn btn-primary" onclick="submitAchievement('${type}')">提交</button></div>`;
+        document.getElementById('registerFormContainer').innerHTML=html;
+    }
 
-        function showAchievementForm(type) {
-            let html='';
-            switch(type){
-                case 'competition': html=`<h4>🏆 比赛获奖</h4><div class="form-grid"><div class="form-group full"><label>比赛名称*</label><input id="f_name"></div><div class="form-group"><label>获奖等级*</label><select id="f_award"><option value="">请选择</option><option>一等奖</option><option>二等奖</option><option>三等奖</option></select></div><div class="form-group"><label>级别*</label><select id="f_level"><option value="">请选择</option><option>国家级</option><option>省级</option></select></div><div class="form-group"><label>主办单位*</label><input id="f_organizer"></div><div class="form-group"><label>日期*</label><input type="date" id="f_date"></div><div class="form-group"><label>指导教师</label><input id="f_advisor"></div><div class="form-group"><label>证书编号</label><input id="f_certno"></div></div>`; break;
-                case 'paper': html=`<h4>📄 论文</h4><div class="form-grid"><div class="form-group full"><label>题目*</label><input id="f_title"></div><div class="form-group"><label>期刊*</label><input id="f_journal"></div><div class="form-group"><label>级别</label><select id="f_level"><option value="">请选择</option><option>SCI</option><option>EI</option><option>核心</option></select></div><div class="form-group"><label>日期*</label><input type="date" id="f_date"></div><div class="form-group"><label>作者顺序*</label><select id="f_authorOrder"><option value="">请选择</option><option>第一作者</option><option>第二作者</option></select></div><div class="form-group"><label>DOI</label><input id="f_doi"></div></div>`; break;
-                // 其他类型省略，原理相同
-                default: html=`<p>表单建设中</p>`;
-            }
-            html+=`<div class="form-actions"><button class="btn btn-primary" onclick="submitAchievement('${type}')">提交</button></div>`;
-            document.getElementById('registerFormContainer').innerHTML=html;
+    async function submitAchievement(type) {
+        const getVal = id => document.getElementById(id)?.value?.trim()||'';
+        let data={};
+        switch(type){
+            case 'competition': data={name:getVal('f_name'),award:getVal('f_award'),level:getVal('f_level'),organizer:getVal('f_organizer'),date:getVal('f_date'),advisor:getVal('f_advisor'),certNo:getVal('f_certno')}; break;
+            case 'paper': data={title:getVal('f_title'),journal:getVal('f_journal'),level:getVal('f_level'),date:getVal('f_date'),authorOrder:getVal('f_authorOrder'),doi:getVal('f_doi')}; break;
         }
+        try{
+            await apiRequest('/achievements','POST',{type,data});
+            showToast('登记成功，等待审核');
+            navigateTo('student-achievements');
+        }catch(e){showToast(e.message,'error');}
+    }
 
-        async function submitAchievement(type) {
-            const getVal = id => document.getElementById(id)?.value?.trim()||'';
-            let data={};
-            switch(type){
-                case 'competition': data={name:getVal('f_name'),award:getVal('f_award'),level:getVal('f_level'),organizer:getVal('f_organizer'),date:getVal('f_date'),advisor:getVal('f_advisor'),certNo:getVal('f_certno')}; break;
-                case 'paper': data={title:getVal('f_title'),journal:getVal('f_journal'),level:getVal('f_level'),date:getVal('f_date'),authorOrder:getVal('f_authorOrder'),doi:getVal('f_doi')}; break;
+    async function renderStudentAchievements() {
+        const list = await apiRequest('/achievements');
+        let rows = list.map(a=>`<tr><td>${a.achievementId}</td><td>${getAchievementTypeLabel(a.type)}</td><td>${formatDate(a.createdAt)}</td><td>${getStatusBadge(a.status)}</td><td><button class="btn btn-outline btn-xs" onclick="viewDetail('${a.achievementId}')">详情</button></td></tr>`).join('');
+        return `<div class="page-header"><h2>📋 我的成果列表</h2></div><div class="card"><div class="table-wrap"><table><thead><tr><th>编号</th><th>类型</th><th>日期</th><th>状态</th><th>操作</th></tr></thead><tbody>${rows||'<tr><td colspan="5">暂无记录</td></tr>'}</tbody></table></div></div>`;
+    }
+
+    async function renderStudentProfile() {
+        const student = await apiRequest(`/students/${currentUser.id}`);
+        return `<div class="page-header"><h2>👤 个人信息</h2></div>
+        <div class="card"><div class="form-grid">
+            <div class="form-group"><label>学号</label><input value="${student.studentId}" readonly></div>
+            <div class="form-group"><label>姓名</label><input value="${student.name}" readonly></div>
+            <div class="form-group"><label>性别</label><input value="${student.gender}" readonly></div>
+            <div class="form-group"><label>学历</label><input value="${student.education}" readonly></div>
+            <div class="form-group"><label>专业</label><input value="${student.major}" readonly></div>
+            <div class="form-group"><label>联系电话</label><input value="${student.phone}" readonly></div>
+            <div class="form-group"><label>邮箱</label><input value="${student.email}" readonly></div>
+            <div class="form-group"><label>入学年份</label><input value="${student.enrollmentYear}" readonly></div>
+        </div></div>`;
+    }
+
+    // ==================== 管理端页面 ====================
+    async function renderAdminDashboard() {
+        const students = await apiRequest('/students');
+        const achievements = await apiRequest('/achievements');
+        const pending = achievements.filter(a=>a.status==='pending').length;
+        const approved = achievements.filter(a=>a.status==='approved').length;
+        return `
+        <div class="page-header"><h2>📊 管理仪表盘</h2></div>
+        <div class="stats-grid">
+            <div class="stat-card"><div class="stat-icon blue">👥</div><div class="stat-info"><div class="stat-value">${students.length}</div><div class="stat-label">学生总数</div></div></div>
+            <div class="stat-card"><div class="stat-icon green">📋</div><div class="stat-info"><div class="stat-value">${achievements.length}</div><div class="stat-label">成果总数</div></div></div>
+            <div class="stat-card"><div class="stat-icon orange">⏳</div><div class="stat-info"><div class="stat-value">${pending}</div><div class="stat-label">待审核</div></div></div>
+            <div class="stat-card"><div class="stat-icon purple">✅</div><div class="stat-info"><div class="stat-value">${approved}</div><div class="stat-label">已通过</div></div></div>
+        </div>
+        <button class="btn btn-warning" onclick="navigateTo('admin-achievements')">🔍 查看待审核成果</button>`;
+    }
+
+    async function renderAdminAchievements() {
+        const list = await apiRequest('/achievements');
+        let rows = list.map(a=>{
+            return `<tr>
+                <td>${a.achievementId}</td><td>${a.studentId}</td>
+                <td>${getAchievementTypeLabel(a.type)}</td><td>${formatDate(a.createdAt)}</td>
+                <td>${getStatusBadge(a.status)}</td>
+                <td>
+                    <button class="btn btn-outline btn-xs" onclick="viewDetail('${a.achievementId}')">详情</button>
+                    ${a.status==='pending'?`<button class="btn btn-success btn-xs" onclick="review('${a.achievementId}','approved')">通过</button><button class="btn btn-danger btn-xs" onclick="review('${a.achievementId}','rejected')">退回</button>`:''}
+                </td>
+            </tr>`;
+        }).join('');
+        return `<div class="page-header"><h2>📋 成果审核管理</h2></div>
+        <div class="card"><div class="table-wrap"><table><thead><tr><th>编号</th><th>学生</th><th>类型</th><th>日期</th><th>状态</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+    }
+
+    async function review(achievementId, status) {
+        await apiRequest(`/achievements/${achievementId}/review`,'PATCH',{status});
+        showToast(status==='approved'?'已通过':'已退回');
+        navigateTo('admin-achievements');
+    }
+
+    async function renderAdminStudents() {
+        const students = await apiRequest('/students');
+        let rows = students.map(s=>`<tr><td>${s.studentId}</td><td>${s.name}</td><td>${s.gender}</td><td>${s.education}</td><td>${s.major}</td><td>${s.phone}</td><td>${s.email}</td><td><button class="btn btn-outline btn-xs" onclick="viewStudentAchievements('${s.studentId}')">查看成果</button></td></tr>`).join('');
+        return `<div class="page-header"><h2>👥 学生管理</h2><p class="breadcrumb">共 ${students.length} 名学生</p></div>
+        <div class="card"><div class="card-header"><h3>学生列表</h3><button class="btn btn-primary" onclick="document.getElementById('importFileInput').click()">📥 导入Excel</button></div>
+        <div class="table-wrap"><table><thead><tr><th>学号</th><th>姓名</th><th>性别</th><th>学历</th><th>专业</th><th>电话</th><th>邮箱</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+    }
+
+    async function renderAdminStatistics() {
+        const achievements = await apiRequest('/achievements');
+        const typeCount = {};
+        achievements.forEach(a => { typeCount[a.type] = (typeCount[a.type]||0)+1; });
+        return `<div class="page-header"><h2>📈 数据统计</h2></div>
+        <div class="card"><div class="card-header"><h3>成果类型分布</h3></div>
+        <div style="display:flex;gap:20px;">${Object.entries(typeCount).map(([t,c])=>`<span><strong>${getAchievementTypeLabel(t)}</strong>: ${c}</span>`).join('')}</div></div>`;
+    }
+
+    async function viewDetail(achievementId) {
+        const list = await apiRequest('/achievements');
+        const ach = list.find(a=>a.achievementId===achievementId);
+        if(!ach) return;
+        const d = ach.data;
+        let html = `<h4>成果详情</h4><p>编号：${ach.achievementId}</p><p>类型：${getAchievementTypeLabel(ach.type)}</p><p>状态：${getStatusBadge(ach.status)}</p>`;
+        for(let key in d) html += `<p><strong>${key}</strong>: ${d[key]}</p>`;
+        openModal(html);
+    }
+
+    async function viewStudentAchievements(studentId) {
+        const all = await apiRequest('/achievements');
+        const list = all.filter(a=>a.studentId===studentId);
+        let rows = list.map(a=>`<tr><td>${a.achievementId}</td><td>${getAchievementTypeLabel(a.type)}</td><td>${formatDate(a.createdAt)}</td><td>${getStatusBadge(a.status)}</td></tr>`).join('');
+        openModal(`<h4>学生 ${studentId} 的成果</h4><div class="table-wrap"><table><thead><tr><th>编号</th><th>类型</th><th>日期</th><th>状态</th></tr></thead><tbody>${rows||'<tr><td colspan="4">暂无</td></tr>'}</tbody></table></div>`);
+    }
+
+    // Excel 导入（需要 xlsx 库已引入）
+    function handleFileImport(event) {
+        const file = event.target.files[0];
+        if(!file) return;
+        const reader = new FileReader();
+        reader.onload = async function(e) {
+            const data = new Uint8Array(e.target.result);
+            const workbook = XLSX.read(data, {type:'array'});
+            const sheet = workbook.Sheets[workbook.SheetNames[0]];
+            const rows = XLSX.utils.sheet_to_json(sheet, {header:1, defval:''});
+            if(rows.length<2){showToast('Excel无数据','error');return;}
+            const headers = rows[0].map(h=>String(h).trim());
+            const idIdx = headers.indexOf('学号');
+            if(idIdx===-1){showToast('缺少学号列','error');return;}
+            const students = [];
+            for(let i=1;i<rows.length;i++){
+                const r = rows[i];
+                const sid = String(r[idIdx]||'').trim();
+                if(!sid) continue;
+                const nameIdx = headers.indexOf('姓名');
+                students.push({
+                    studentId: sid,
+                    name: nameIdx>=0?String(r[nameIdx]||'').trim():'',
+                    gender: headers.indexOf('性别')>=0?String(r[headers.indexOf('性别')]||'').trim():'',
+                    education: headers.indexOf('学历')>=0?String(r[headers.indexOf('学历')]||'').trim():'',
+                    major: headers.indexOf('专业')>=0?String(r[headers.indexOf('专业')]||'').trim():'',
+                    phone: headers.indexOf('联系电话')>=0?String(r[headers.indexOf('联系电话')]||'').trim():'',
+                    email: headers.indexOf('邮箱')>=0?String(r[headers.indexOf('邮箱')]||'').trim():'',
+                    enrollmentYear: headers.indexOf('入学年份')>=0?String(r[headers.indexOf('入学年份')]||'').trim():''
+                });
             }
             try{
-                await apiRequest('/achievements','POST',{type,data});
-                showToast('登记成功，等待审核');
-                navigateTo('student-achievements');
-            }catch(e){showToast(e.message,'error');}
-        }
+                await apiRequest('/students/import','POST',{students});
+                showToast(`成功导入 ${students.length} 名学生`);
+                if(currentPage==='admin-students') navigateTo('admin-students');
+            }catch(err){showToast(err.message,'error');}
+        };
+        reader.readAsArrayBuffer(file);
+        event.target.value = '';
+    }
 
-        async function renderStudentAchievements() {
-            const list = await apiRequest('/achievements');
-            let rows = list.map(a=>`<tr><td>${a.achievementId}</td><td>${getAchievementTypeLabel(a.type)}</td><td>${formatDate(a.createdAt)}</td><td>${getStatusBadge(a.status)}</td><td><button class="btn btn-outline btn-xs" onclick="viewDetail('${a.achievementId}')">详情</button></td></tr>`).join('');
-            return `<div class="page-header"><h2>📋 我的成果列表</h2></div><div class="card"><div class="table-wrap"><table><thead><tr><th>编号</th><th>类型</th><th>日期</th><th>状态</th><th>操作</th></tr></thead><tbody>${rows||'<tr><td colspan="5">暂无记录</td></tr>'}</tbody></table></div></div>`;
-        }
-
-        // 管理员页面类似，均通过 apiRequest 获取数据，省略完整实现但已包含在完整文件中
-        // ...
-    </script>
+    // 页面首次加载时绑定事件
+    window.onload = function() {
+        toggleLoginFields();
+    };
+</script>
 </body>
 </html>
