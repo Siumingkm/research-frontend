@@ -109,7 +109,7 @@
             <h2>科研成果登记系统</h2>
             <p class="subtitle">大学生科研成果管理与登记平台</p>
             <div class="form-group"><label>👤 用户类型</label>
-                <select id="loginRole"><option value="student">学生端</option><option value="admin">管理端</option></select>
+                <select id="loginRole" onchange="toggleLoginFields()"><option value="student">学生端</option><option value="admin">管理端</option></select>
             </div>
             <div class="form-group" id="studentLoginFields"><label>📧 学号</label><input id="loginStudentId" placeholder="请输入学号"></div>
             <div class="form-group" id="adminLoginFields" style="display:none;"><label>🔑 管理员账号</label><input id="loginAdminUser" placeholder="请输入管理员账号"></div>
@@ -146,6 +146,13 @@
             return data;
         }
 
+function toggleLoginFields() {
+    const role = document.getElementById('loginRole').value;
+    document.getElementById('studentLoginFields').style.display = role === 'student' ? 'block' : 'none';
+    document.getElementById('adminLoginFields').style.display = role === 'admin' ? 'block' : 'none';
+    document.getElementById('loginError').textContent = '';
+}
+
         function showToast(msg, type='success') {
             const c = document.getElementById('toastContainer');
             const t = document.createElement('div');
@@ -160,34 +167,22 @@
         document.getElementById('modalOverlay').addEventListener('click',function(e){if(e.target===this)closeModal();});
 
         async function handleLogin() {
-            const role = document.getElementById('loginRole').value;
-            const password = document.getElementById('loginPassword').value;
-            const errorEl = document.getElementById('loginError');
-            let endpoint, body;
-            if(role==='student') {
-                const sid = document.getElementById('loginStudentId').value.trim();
-                if(!sid){errorEl.textContent='❌ 请输入学号';return;}
-                endpoint = '/auth/login/student';
-                body = { studentId: sid, password };
-            } else {
-                const uname = document.getElementById('loginAdminUser').value.trim();
-                if(!uname){errorEl.textContent='❌ 请输入管理员账号';return;}
-                endpoint = '/auth/login/admin';
-                body = { username: uname, password };
-            }
-            try {
-                const data = await apiRequest(endpoint, 'POST', body);
-                localStorage.setItem('token', data.token);
-                currentUser = data.user;
-                document.getElementById('loginOverlay').classList.add('hidden');
-                document.getElementById('appLayout').classList.add('active');
-                document.getElementById('sidebarRole').textContent = currentUser.role==='student'?`学生端 · ${currentUser.name}`:'管理端 · 管理员';
-                buildSidebar();
-                navigateTo(currentUser.role==='student'?'student-dashboard':'admin-dashboard');
-            } catch(err) {
-                errorEl.textContent = '❌ ' + err.message;
-            }
-        }
+    const role = document.getElementById('loginRole').value;
+    const password = document.getElementById('loginPassword').value;
+    const errorEl = document.getElementById('loginError');
+
+    if (role === 'student') {
+        const sid = document.getElementById('loginStudentId').value.trim();
+        if (!sid) { errorEl.textContent = '❌ 请输入学号'; return; }
+        // 调用学生登录 API
+        await loginStudent(sid, password);
+    } else if (role === 'admin') {
+        const adminUser = document.getElementById('loginAdminUser').value.trim();
+        if (!adminUser) { errorEl.textContent = '❌ 请输入管理员账号'; return; }
+        // 调用管理员登录 API
+        await loginAdmin(adminUser, password);
+    }
+}
 
         function handleLogout() {
             localStorage.removeItem('token');
