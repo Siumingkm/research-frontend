@@ -191,36 +191,39 @@
         return data;
     }
 
-    async function handleLogin() {
-        const role = document.getElementById('loginRole').value;
-        const password = document.getElementById('loginPassword').value;
-        const errorEl = document.getElementById('loginError');
-        errorEl.textContent = '';
+async function handleLogin() {
+    const role = document.getElementById('loginRole').value;
+    const password = document.getElementById('loginPassword').value;
+    const errorEl = document.getElementById('loginError');
+    errorEl.textContent = '';
 
-        try {
-            let data;
-            if (role === 'student') {
-                const sid = document.getElementById('loginStudentId').value.trim();
-                if (!sid) { errorEl.textContent = '❌ 请输入学号'; return; }
-                data = await loginStudent(sid, password);
-            } else {
-                const username = document.getElementById('loginAdminUser').value.trim();
-                if (!username) { errorEl.textContent = '❌ 请输入管理员账号'; return; }
-                data = await loginAdmin(username, password);
-            }
-            // 登录成功
-            localStorage.setItem('token', data.token);
-            currentUser = data.user;
-            document.getElementById('loginOverlay').classList.add('hidden');
-            document.getElementById('appLayout').classList.add('active');
-            document.getElementById('sidebarRole').textContent =
-                currentUser.role === 'student' ? `学生端 · ${currentUser.name}` : '管理端 · 管理员';
-            buildSidebar();
-            navigateTo(currentUser.role === 'student' ? 'student-dashboard' : 'admin-dashboard');
-        } catch (err) {
-            errorEl.textContent = '❌ ' + err.message;
+    try {
+        let endpoint, body;
+        if (role === 'student') {
+            const sid = document.getElementById('loginStudentId').value.trim();
+            if (!sid) { errorEl.textContent = '❌ 请输入学号'; return; }
+            endpoint = '/auth/login/student';
+            body = { studentId: sid, password };
+        } else {
+            const username = document.getElementById('loginAdminUser').value.trim();
+            if (!username) { errorEl.textContent = '❌ 请输入管理员账号'; return; }
+            endpoint = '/auth/login/admin';
+            body = { username, password };
         }
+        const data = await apiRequest(endpoint, 'POST', body);
+        localStorage.setItem('token', data.token);
+        currentUser = data.user;
+        document.getElementById('loginOverlay').classList.add('hidden');
+        document.getElementById('appLayout').classList.add('active');
+        document.getElementById('sidebarRole').textContent =
+            currentUser.role === 'student' ? `学生端 · ${currentUser.name}` : '管理端 · 管理员';
+        buildSidebar();
+        navigateTo(currentUser.role === 'student' ? 'student-dashboard' : 'admin-dashboard');
+    } catch (err) {
+        errorEl.textContent = '❌ ' + err.message;
     }
+}
+  
 
     function handleLogout() {
         localStorage.removeItem('token');
